@@ -1,0 +1,237 @@
+%% Main function
+function SimulatedAnnealing() 
+    nCities = 10;
+    initialTemperature = 100;
+    endTemperature = 0;
+
+    
+    cities = rand(nCities, 2)*10; % setup initial cities positions as 2-dimentional array (x,y)
+    figure  % Create new canvas for plot
+    plot(cities(:,1),cities(:,2),"b--o" ); % draw initial route. The colon alone, without start or end values, specifies all of the elements in that dimension.
+    title('Initial route')
+
+    for i=1:2
+        if (i==1)
+            state = OptimiseRoute(cities, initialTemperature, endTemperature, i); % call our optimization function
+            figure
+            plot(cities(state,1),cities(state,2),"g--o"); % draw final route
+            title('Optimized route');
+        else
+            state = OptimiseRoute(cities, initialTemperature, endTemperature, i); % call our optimization function
+            figure
+            plot(cities(state,1),cities(state,2),"r--o"); % draw final route
+            title('2-opt route');
+        end
+    end
+
+
+    citiesOP = Ant(cities);
+    figure
+    plot([citiesOP(:,1);citiesOP(1,1)],[citiesOP(:,2);citiesOP(1,2)],'m--o')
+    title('ACO route')
+end
+
+
+%% Basic optimization (with calling 2-opt in time)
+function [ state ] = OptimiseRoute(cities, initialTemperature, endTemperature, opt)
+    nCities = size(cities,1);
+    state = (1:nCities)'; % setup initial cities visit order as numbered column-vector (transposed row)
+    currentEnergy = CalculateEnergy(state, cities); % calculate the energy for the initial condition
+    if (opt == 1)
+        disp('Initial route length: ');
+        disp(currentEnergy);
+    end
+    T = initialTemperature;
+    if (opt == 2)
+        for k = 1:100000 % main loop
+            stateCandidate = Opt2(state); % create a new order for visiting cities
+            candidateEnergy = CalculateEnergy(stateCandidate, cities); % calculate its energy
+            
+            if(candidateEnergy < currentEnergy) % if the new order has less energy
+                state = stateCandidate; % it became the new order
+                currentEnergy = candidateEnergy;
+            else
+                p = GetTransitionProbability(candidateEnergy-currentEnergy, T); % otherwise, calculate the probability
+                if (IsTransition(p)) % if the transition occurs with a given probability
+                    state = stateCandidate; % accept the new order
+                    currentEnergy = candidateEnergy;
+                end
+            end
+            T = DecreaseTemperature(initialTemperature, k);
+            
+            if(T <= endTemperature) % exit condition
+                break;
+            end
+        end
+        disp('2-opt route length: ');
+        disp(currentEnergy);
+    else
+        for k = 1:100000 % main loop
+            stateCandidate = GenerateStateCandidate(state); % create a new order for visiting cities
+            candidateEnergy = CalculateEnergy(stateCandidate, cities); % calculate its energy
+            
+            if(candidateEnergy < currentEnergy) % if the new order has less energy
+                state = stateCandidate; % it became the new order
+                currentEnergy = candidateEnergy;
+            else
+                p = GetTransitionProbability(candidateEnergy-currentEnergy, T); % otherwise, calculate the probability
+                if (IsTransition(p)) % if the transition occurs with a given probability
+                    state = stateCandidate; % accept the new order
+                    currentEnergy = candidateEnergy;
+                end
+            end
+            T = DecreaseTemperature(initialTemperature, k);
+            
+            if(T <= endTemperature) % exit condition
+                break;
+            end
+        end
+        disp('Optimized route length: ');
+        disp(currentEnergy);
+    end
+    
+end
+
+function [ E ] = CalculateEnergy(sequence, cities) % calculate route length
+    n = size(sequence,1); % get size of first dimention (row count)
+    E = 0;
+    for i = 1:n-1
+        E = E + Metric(cities(sequence(i),:), cities(sequence(i+1),:));
+    end
+    % add distance between finish and start to return to initial point
+    E = E + Metric(cities(sequence(end),:), cities(sequence(1),:));
+end
+
+function [ distance ] = Metric( A, B ) % calculate distance between 2 points
+    distance = (A - B).^2;
+    distance = sqrt(distance);
+    distance = sum(distance);
+end
+
+function [ T ] = DecreaseTemperature( initialTemperature, k)
+    T = initialTemperature * 0.1 / k; 
+end
+
+function [ P ] = GetTransitionProbability( dE, T )
+    P = exp(-dE/T);
+end
+
+function [ a ] = IsTransition( probability )
+    if(rand(1) <= probability)
+        a = 1;
+    else
+        a = 0; 
+    end
+end
+
+function [ seq ] = GenerateStateCandidate(seq)
+    n = size(seq, 1); % get size of cities indexes array
+    i = randi(n); % get a pseudorandom index between 1 and n.
+    j = randi(n);
+    % swap 2 points
+    t = seq(i);
+    seq(i) = seq(j);
+    seq(j) = t;
+end
+
+
+%% 2-opt realization
+function [ seq ] = Opt2(seq)
+    n = size(seq, 1); 
+    [i, j] = RandomIJ(n);
+    for k = 0:((j-i)/2)
+        [seq(i+k), seq(j-k)] = Swap(seq(i+k), seq(j-k));
+    end
+end
+
+function [i, j] = RandomIJ(n)
+    i = randi(n);
+    j = randi(n);
+    if(i > j)
+        [i, j] = Swap(i, j);
+    end
+end
+
+
+% Used instead of [a, b] = deal [b, a], because this function is cheaper
+function [a, b] = Swap(b, a)
+end
+
+
+
+
+
+%% Ant Colony Optimization
+function [ citiesOP ] = Ant(cities)
+    age = 2000;
+    countage = 10;
+    n = size(cities, 1);
+    a = 1;
+    b = 2;
+    e = 0.1;
+    p = 0.1;
+    Q = 1;
+    q = 0.9;
+    ph = Q/(n*2000);
+    dist = zeros(n,n);
+    returndist = zeros(n,n);
+    ROUTEant = zeros(countage,n);
+    DISTant = zeros(countage,1);
+    bestDIST = inf;
+    tao = ph*(ones(n,n));
+    tao(logical(eye(size(tao)))) = 0;
+    for i = 1:n
+        for j = 1:n
+            dist(i,j) = sqrt((cities(i,1) - cities(j,1))^2 + ...
+            (cities(i,2) - cities(j,2))^2);
+            if i ~= j
+                returndist(i,j) = 1/sqrt((cities(i,1) - cities(j,1))^2 + ...
+                (cities(i,2) - cities(j,2))^2);
+            end
+        end
+    end
+    for iterration = 1:age
+        for k = 1:countage
+            ROUTEant(k,1) = randi([1 n]);
+            for s = 2:n
+                ir = ROUTEant(k,s-1);
+                P = tao(ir,:).^a .* returndist(ir,:).^b;
+                P(ROUTEant(k,1:s-1)) = 0;
+                RANDONE = rand;
+                if RANDONE <= q
+                    [~, getcity] = max(P);
+                else
+                    P = P ./ sum(P);
+                    getcity = find(cumsum(P) >= RANDONE, 1, 'first');
+                end
+                ROUTEant(k,s) = getcity;
+            end
+            ROUTE = [ROUTEant(k,1:end),ROUTEant(k,1)];
+            S = 0;
+            for i = 1:n
+                S = S + dist(ROUTE(i),ROUTE(i+1));
+            end
+            DISTant(k) = S;
+            if DISTant(k) < bestDIST
+                bestDIST = DISTant(k);
+                bestROUTE = ROUTEant(k,[1:end,1]);
+            end
+            for tL = 1:n
+                xL = ROUTE(tL);
+                yL = ROUTE(tL+1);
+                tao(xL,yL) = (1-p)*tao(xL,yL) + p*ph;
+                tao(yL,xL) = (1-p)*tao(yL,xL) + p*ph;
+            end
+        end
+        tao(tao < 2.5e-150) = 2.5e-150;
+        for t = 1:n
+             xG = bestROUTE(t);
+             yG = bestROUTE(t+1);
+             tao(xG,yG) = tao(xG,yG) + e*(Q/bestDIST);
+             tao(yG,xG) = tao(yG,xG) + e*(Q/bestDIST);
+        end
+    end
+    citiesOP(:,[1,2]) = cities(bestROUTE(:),[1,2]);
+    disp('ACO route length: ')
+    disp (bestDIST)
+end
